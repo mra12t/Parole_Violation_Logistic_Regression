@@ -1,0 +1,106 @@
+---
+title: "Predicting Parole Violation"
+output: github_document
+date: "2022-12-18"
+---
+### About the Study and the Data Set
+In the criminal justice system, parole is a system in which inmates who are not considered a threat to society are released from prison before their sentence is completed. They are still considered to be serving their sentence while on parole and can be returned to prison if they break the rules of their parole. Parole boards are responsible for determining which inmates are suitable candidates for parole and aim to release those who are unlikely to commit more crimes after being released. In this problem, we will create and validate a model that predicts whether an inmate will violate the terms of their parole. Such a model could be useful to parole boards when deciding whether to grant or deny parole. We will use data from the 2004 United States National Corrections Reporting Program, a nationwide census of parole releases in 2004, to train and test our model. The data includes information about parolees who either completed their parole successfully or violated the terms of their parole in 2004. The dataset includes variables such as the parolee's gender, race, age, state, time served in prison, maximum sentence length, and main crime leading to incarceration. The goal of the model is to predict whether a parolee will violate the terms of their parole based on these variables.
+
+### EDA
+
+```{r}
+parole = read.csv("parole.csv")
+nrow(parole)
+```
+```{r}
+library(knitr)
+kable(table(parole$violator))
+```
+```{r}
+str(parole)
+```
+we have two variables that are unordered factors with more than 3 levels in the data set, these being: crime and state.
+From the description of the data set:  
+
+* "Crime" is a variable in the dataset that represents the main crime that led to the parolee's incarceration. The variable is coded, with a value of 2 indicating that the crime was larceny, a value of 3 indicating that the crime was drug-related, a value of 4 indicating that the crime was driving-related, and a value of 1 indicating that the crime was any other type of crime.  
+
+* "State" is a variable in the dataset that represents the state where the parolee was released. The variable is coded, with a value of 2 indicating that the state is Kentucky, a value of 3 indicating that the state is Louisiana, a value of 4 indicating that the state is Virginia, and a value of 1 indicating that the state is any other state. The three states of Kentucky, Louisiana, and Virginia were chosen for inclusion in the dataset because they had a high number of parolees represented in the data.
+
+```{r}
+parole$state = as.factor(parole$state)
+parole$crime = as.factor(parole$crime)
+# lets check the result
+summary(parole$crime)
+summary(parole$state)
+```
+```{r}
+library(caTools)
+#choosing random seeds
+set.seed(123)
+split = sample.split(parole$violator, SplitRatio = 0.7)
+train = subset(parole, split == TRUE)
+test = subset(parole, split == FALSE)
+```
+
+### Logistic Regression Model
+
+```{r}
+model = glm(violator ~ . , family = binomial, data = train)
+summary(model)
+```
+As we can see from the summary of the model above, there are three main significant variables that affect whether or not a parolee will violate their parole. These are state4, multiple.offence, and race.  
+Furthermore, if we have to parolee A and B that have all identical variables but A has higher multiple offences than B. Then, A is 4 times more likely to violate their parole since the factor of multiple offences variable is 1.403, the odds must be calculated as $exp(1.403)=4.06$.
+
+
+### Testing the Model on the Testing Set
+
+```{r}
+predection = predict(model, newdata = test, type = "response")
+summary(predection)
+```
+```{r}
+x = table(test$violator, as.numeric(predection >= 0.5))
+kable(x)
+```
+```{r}
+# Calculating the Sensitivity of the Model
+x[4]/(x[4]+x[2])
+#Calculating the Specificity of the Model
+x[1]/(x[3]+x[1])
+#Calculating the Accuracy of the Model 
+sum(diag(x))/sum(x)
+
+```
+
+Now, let's compare it to the accuracy of a base line model. 
+```{r}
+kable(table(test$violator))
+```
+
+A base line model on the test set will predict a parolee will not violate their parole all the time. Let's find the accuracy of such model. 
+```{r}
+table(test$violator)[1]/nrow(test)
+```
+
+***Important Observations***  
+
+
+*   ***The parole board would be more likely to regret releasing a prisoner who goes on to violate parole (a false negative prediction) than denying parole to a prisoner who would not have violated parole (a false positive prediction). Using the model for parole decisions, a negative prediction would result in parole being granted, while a positive prediction would lead to parole being denied. To minimize the number of false negatives, the parole board should lower the cutoff for positive predictions, which would increase false positives but decrease false negatives. On the other hand, raising the cutoff for positive predictions would increase false negatives and decrease false positives. Since the parole board places a high value on avoiding false negatives, they should choose to lower the cutoff(<0.5).***
+
+*   ***The model with a threshold of 0.5 has 3 false positives and 15 false negatives, while the baseline model has 0 false positives and 23 false negatives. Given that false negatives are more costly for the board, the model with a threshold of 0.5 appears to be more useful.*** 
+
+```{r}
+#Calculating AUC
+library(ROCR)
+pred = prediction(predection, test$violator)
+as.numeric(performance(pred, "auc")@y.values)
+```
+### Notes on AUC: 
+
+The AUC, or area under the curve, is a metric used to evaluate the performance of a binary classification model. It measures the model's ability to distinguish between positive and negative examples.
+
+To calculate the AUC, a curve is plotted with the true positive rate on the y-axis and the false positive rate on the x-axis. The true positive rate is the proportion of positive examples that are correctly classified as positive, while the false positive rate is the proportion of negative examples that are incorrectly classified as positive.
+
+The AUC is calculated by finding the area under this curve. A model with a high AUC is able to correctly classify a larger proportion of positive and negative examples, while a model with a low AUC has difficulty distinguishing between the two classes.
+
+One important aspect of the AUC is that it is independent of the cutoff used to classify an example as positive or negative. This means that the AUC is not affected by the specific threshold used to make a prediction. This makes it a useful metric for comparing models, since it is not influenced by the decision boundary chosen by the user.
